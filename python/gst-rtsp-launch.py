@@ -6,8 +6,6 @@ import sys
 import select
 import json
 import subprocess
-from picamera.array import PiRGBArray
-from picamera import PiCamera
 
 gi.require_version('Gst', '1.0')
 gi.require_version('GstRtspServer', '1.0')
@@ -41,7 +39,13 @@ _ZOOM = 0.30
 
 
 def undistortImg(K, D, xi, img):
-	
+
+	# read image, which user wants to undistort - when not liveCap
+	if not liveCap:
+		img = cv2.imread(img)
+	# else
+	# img is the live captured image - when liveCap
+
 	# set the camera matrix - resize the width and height of final image
 	new_K = np.copy(K)
 	new_K[0, 0] = new_K[0, 0] / 2 # /3 for bigger FOV
@@ -62,7 +66,7 @@ def undistortImg(K, D, xi, img):
 	R = np.array(((0.5, 0.,    _RL),     (0., 0.6,   _UD),   (0., 0., _ZOOM)))
 
 	# write undistorted image into numpy array
-	undistorted = np.zeros((640, 480, 3), np.uint8)
+	undistorted = np.zeros((1024, 720, 3), np.uint8)
 	undistorted = cv2.omnidir.undistortImage(img, K, D, xi, cv2.omnidir.RECTIFY_PERSPECTIVE, undistorted, new_K, R=R)
 
 	if faceDetection:
@@ -113,13 +117,9 @@ def calcCorners():
 class SensorFactory(GstRtspServer.RTSPMediaFactory):
 	def __init__(self, **properties):
 		super(SensorFactory, self).__init__(**properties)
-		#self.cap = cv2.VideoCapture(0)
-		#self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1024)
-		#self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
-		self.camera = PiCamera()
-		self.camera.resolution = (1024, 720)
-		self.camera.framerate = 10
-		self.rawCapture = PiRGBArray(self.camera, size=(1024, 720))
+		self.cap = cv2.VideoCapture(0)
+		self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1024)
+		self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
 		self.number_frames = 0
 		self.fps = 10
 		self.duration = 1 / self.fps * Gst.SECOND  # duration of a frame in nanoseconds
@@ -131,66 +131,65 @@ class SensorFactory(GstRtspServer.RTSPMediaFactory):
 
 	def on_need_data(self, src, lenght):
 		global _UD, _RL, _ZOOM
-		#if self.cap.isOpened():
-		#ret,frame = self.cap.read()
-		#if ret:
-		for frame in self.camera.capture_continuous(self.rawCapture, format="bgr", use_video_port=True):	
-			# lines = sys.stdin.readline() # also works... the difference with below example is that 
-			# it is read every time it loops
-			image = frame.array
-			i, o, e = select.select([sys.stdin], [], [], 0.00000000001)
-			# communication in other way: Python -> NodeJS
-			# a = sys.stdout.flush()
-			# if a:
-			#	print(a, flush=True)
-			
-			# if something arrived in stdin from NodeJS
-			if i:
-				# print(sys.stdin.readline(), flush=True)
+		if self.cap.isOpened():
+			ret,frame = self.cap.read()
+			if ret:
 				
-				# read from stdin
-				direction = sys.stdin.readline()
-				direction = direction[2:len(direction)-2]
+				# lines = sys.stdin.readline() # also works... the difference with below example is that 
+				# it is read every time it loops
+				i, o, e = select.select([sys.stdin], [], [], 0.00000000001)
+				
+				# communication in other way: Python -> NodeJS
+				# a = sys.stdout.flush()
+				# if a:
+				#	print(a, flush=True)
+				
+				# if something arrived in stdin from NodeJS
+				if i:
+					# print(sys.stdin.readline(), flush=True)
+					
+					# read from stdin
+					direction = sys.stdin.readline()
+					direction = direction[2:len(direction)-2]
 
-				# if it is direction from GET Request, move Camera
-				if direction == 'down':
-					print("DOWN", flush=True)
-					_UD -= 0.1
-				elif direction == 'up':
-					print("UP", flush=True)
-					_UD += 0.1
-				elif direction == 'left':
-					print("LEFT", flush=True)
-					_RL -= 0.1
-				elif direction == 'right':
-					print("RIGHT", flush=True)
-					_RL += 0.1
-				elif direction == 'zoom-in':
-					print("IN", flush=True)
-					_ZOOM -= 0.01
-				elif direction == 'zoom-out':
-					print("OUT", flush=True)
-					_ZOOM += 0.01
-			else:
-				pass
-			self.rawCapture.truncate(0)
-			data = undistortImg(K, D, xi, image).tostring()
-			buf = Gst.Buffer.new_allocate(None, len(data), None)
-			buf.fill(0, data)
-			buf.duration = self.duration
-			timestamp = self.number_frames * self.duration
-			buf.pts = buf.dts = int(timestamp)
-			buf.offset = timestamp
-			self.number_frames += 1
-			retval = src.emit('push-buffer', buf)
-			
-			# print('pushed buffer, frame {}, duration {} ns, durations {} s'.format(self.number_frames,
-			#																		self.duration,
-			#																		self.duration / Gst.SECOND))
-			
-			if retval != Gst.FlowReturn.OK:
-				print(retval)
-			break
+					# if it is direction from GET Request, move Camera
+					if direction == 'down':
+						print("DOWN", flush=True)
+						_UD -= 0.1
+					elif direction == 'up':
+						print("UP", flush=True)
+						_UD += 0.1
+					elif direction == 'left':
+						print("LEFT", flush=True)
+						_RL -= 0.1
+					elif direction == 'right':
+						print("RIGHT", flush=True)
+						_RL += 0.1
+					elif direction == 'zoom-in':
+						print("IN", flush=True)
+						_ZOOM -= 0.01
+					elif direction == 'zoom-out':
+						print("OUT", flush=True)
+						_ZOOM += 0.01
+				else:
+					pass
+
+				data = undistortImg(K, D, xi, frame).tostring()
+				buf = Gst.Buffer.new_allocate(None, len(data), None)
+				buf.fill(0, data)
+				buf.duration = self.duration
+				timestamp = self.number_frames * self.duration
+				buf.pts = buf.dts = int(timestamp)
+				buf.offset = timestamp
+				self.number_frames += 1
+				retval = src.emit('push-buffer', buf)
+				
+				# print('pushed buffer, frame {}, duration {} ns, durations {} s'.format(self.number_frames,
+				#																		self.duration,
+				#																		self.duration / Gst.SECOND))
+				
+				if retval != Gst.FlowReturn.OK:
+					print(retval)
 
 	def do_create_element(self, url):
 		return Gst.parse_launch(self.launch_string)

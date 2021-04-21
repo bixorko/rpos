@@ -37,7 +37,7 @@ var MediaService = (function (_super) {
         this.webserver.removeAllListeners('request');
         this.webserver.addListener('request', function (request, response, next) {
             utils.log.debug('web request received : %s', request.url);
-            
+                        
             // debug output for NodeJS
             // global.pythonOutput.stdout.on('data', (data) => {
             //    console.log(String.fromCharCode.apply(null, data));
