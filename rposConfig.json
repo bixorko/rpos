@@ -1,9 +1,9 @@
 ﻿{
   "NetworkAdapters" : ["awdl0","eth0", "wlan0", "en0"], 
-  "IpAddress" : "192.168.43.242",
+  "IpAddress" : "",
   "ServicePort" : 8081,
-  "Username" : "",
-  "Password" : "",
+  "Username" : "user",
+  "Password" : "user",
   "CameraType" : "picam",
   "RTSPAddress" : "", "//":"Normally left blank. Used to set RTSP Server Address",
   "RTSPPort" : 8554,
@@ -24,6 +24,6 @@
     "Model" : "2 B",
     "HardwareId" : ""
   },
-  "logLevel" : 4, "logLevelComment": "## LogLevels are > 1:Error 2:Warning 3:Info 4:Debug",
+  "logLevel" : 3, "logLevelComment": "## LogLevels are > 1:Error 2:Warning 3:Info 4:Debug",
   "logSoapCalls" : false
 }
