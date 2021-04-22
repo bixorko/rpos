@@ -1,3 +1,8 @@
+# gst-rtsp-launch.py
+# Created by Peter Vinarcik
+# xvinar00
+# xvinar00@stud.fit.vutbr.cz
+
 import cv2
 import gi
 import numpy as np
@@ -7,59 +12,47 @@ import select
 import json
 import subprocess
 
+
+# Need to check version of Gst and GstRtspServer
+# older versions doesn't support wrtinig to stream with MediaFactory
 gi.require_version('Gst', '1.0')
 gi.require_version('GstRtspServer', '1.0')
 from gi.repository import Gst, GstRtspServer, GObject
 
 
-# GLOBAL VARIABLES
-CHECKERBOARD = (6,9)
-objpoints = []
-imgpoints = []
-
-subpix_criteria = (cv2.TERM_CRITERIA_EPS+cv2.TERM_CRITERIA_MAX_ITER, 30, 0.1)
-objp = np.zeros((1, 6*9, 3), np.float32)
-objp[0,:,:2] = np.mgrid[0:6, 0:9].T.reshape(-1, 2)
-
-# LOAD IMAGES FOR CALIBRATION ONLY!
-images = glob.glob('./python/*.jpg')
-
-# FACE DETECTION
-cascPath = "haarcascade_frontalface_default.xml"
-
-# Create the haar cascade
-faceCascade = cv2.CascadeClassifier(cascPath)
-
-liveCap = True
-faceDetection = False
-
-_RL = 0.
-_UD = 0.
-_ZOOM = 0.30
+def detectFace(image):
+	
+	gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+	
+	# Detect faces in the image
+	# needs improve, especially in speed 
+	faces = faceCascade.detectMultiScale(
+		gray,
+		scaleFactor=1.1,
+		minNeighbors=5,
+		minSize=(30, 30),
+		flags = cv2.CASCADE_SCALE_IMAGE
+	)
+	
+	# Draw a rectangle around the faces
+	for (x, y, w, h) in faces:
+		cv2.rectangle(image, (x, y), (x+w, y+h), (0, 255, 0), 2)
+		
+	return image
 
 
 def undistortImg(K, D, xi, img):
-
-	# read image, which user wants to undistort - when not liveCap
-	if not liveCap:
-		img = cv2.imread(img)
-	# else
-	# img is the live captured image - when liveCap
-
+	
 	# set the camera matrix - resize the width and height of final image
 	new_K = np.copy(K)
 	new_K[0, 0] = new_K[0, 0] / 2 # /3 for bigger FOV
 	new_K[1, 1] = new_K[1, 1] / 3 # /3 for bigger FOV
 
-	# commets under this means that if user wants to move left we have to set
+	# comments below this means that if user wants to move left we have to set
 	# z value in first index of np array to 0.1 , with move to right to -0.1, .2 .3 .4.....
 	# z value in second index of np array set to 0.1, -0.1, .2, .3, .4.... when we want to move
 	# up and down 
-	# ? - this looks like it moving "camera focus" so i have to find out what can i do with it - TODO!
-	# TODO - investigate ?
-	# TODO - create parser for CLI commands which can be used as input from user 
 	# 		(u - move up, d - move down, r - move right, l - move left)
-	# TODO - maybe create ZOOM (set DEF values)
 	#			   DEF	X     LEFT        X   DEF     UP	  ?   X   DEF
 	#						  RIGHT					 DOWN
 	# R = np.array(((0.5, 0.,    _RL),     (0., 0.6,   _UD),   (0., 0., 0.3)))
@@ -115,6 +108,7 @@ def calcCorners():
 
 
 class SensorFactory(GstRtspServer.RTSPMediaFactory):
+	
 	def __init__(self, **properties):
 		super(SensorFactory, self).__init__(**properties)
 		self.cap = cv2.VideoCapture(0)
@@ -128,6 +122,7 @@ class SensorFactory(GstRtspServer.RTSPMediaFactory):
 								'! videoconvert ! video/x-raw,format=I420 ' \
 								'! x264enc speed-preset=ultrafast tune=zerolatency ' \
 								'! rtph264pay config-interval=1 name=pay0 pt=96'.format(self.fps)
+
 
 	def on_need_data(self, src, lenght):
 		global _UD, _RL, _ZOOM
@@ -191,8 +186,10 @@ class SensorFactory(GstRtspServer.RTSPMediaFactory):
 				if retval != Gst.FlowReturn.OK:
 					print(retval)
 
+
 	def do_create_element(self, url):
 		return Gst.parse_launch(self.launch_string)
+
 
 	def do_configure(self, rtsp_media):
 		self.number_frames = 0
@@ -201,6 +198,7 @@ class SensorFactory(GstRtspServer.RTSPMediaFactory):
 
 
 class GstServer(GstRtspServer.RTSPServer):
+	
 	def __init__(self, **properties):
 		super(GstServer, self).__init__(**properties)
 		self.factory = SensorFactory()
@@ -209,14 +207,49 @@ class GstServer(GstRtspServer.RTSPServer):
 		self.attach(None)
 
 
+# GLOBAL VARIABLES
+CHECKERBOARD = (6,9)
+objpoints = []
+imgpoints = []
+
+subpix_criteria = (cv2.TERM_CRITERIA_EPS+cv2.TERM_CRITERIA_MAX_ITER, 30, 0.1)
+objp = np.zeros((1, 6*9, 3), np.float32)
+objp[0,:,:2] = np.mgrid[0:6, 0:9].T.reshape(-1, 2)
+
+# LOAD IMAGES FOR CALIBRATION ONLY!
+images = glob.glob('./python/*.jpg')
+
+# FACE DETECTION
+cascPath = "./face_recognition/haarcascade_frontalface_default.xml"
+
+# Create the haar cascade
+faceCascade = cv2.CascadeClassifier(cascPath)
+
+faceDetection = False
+
+# Rotation Matrix params
+_RL = 0.
+_UD = 0.
+_ZOOM = 0.30
+
+# Before Camera starts to send data to RTSP Stream
+# camera calibration will be done by using calcCorners and calibrateCamera function
 objpoints,imgpoints,gray = calcCorners()
 K, D, xi = calibrateCamera(objpoints, imgpoints, gray.shape[::-1])
 
+# check if user wants to use face detection
+if len(sys.argv) > 1:
+	if sys.argv[1] == '--face' or sys.argv[1] == '-f':
+		faceDetection = True
+
+# Init thread for livestream
 GObject.threads_init()
 Gst.init(None)
 
+
+# Create server and mount it to specific point with specific Factory
 server = GstServer()
 
+# MAIN PROGRAM
 loop = GObject.MainLoop()
-
 loop.run()
